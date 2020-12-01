@@ -3,20 +3,26 @@ package main
 import (
     "flag"
     "net/http"
-    //log "github.com/sirupsen/logrus"
+    "log"
     "github.com/prometheus/client_golang/prometheus/promhttp"
     "github.com/prometheus/client_golang/prometheus"
-    "log"
     "os/exec"
     "encoding/json"
     "strconv"
     "strings"
+    "fmt"
+    "os"
 )
 
 
 
-const defaultListenAddress = "0.0.0.0:9777"
-const metricNamePrefix = "lvm_"
+const (
+    swVersion = "0.0.1"
+    swName = "lvm_exporter"
+    defaultListenAddress = "0.0.0.0:9777"
+    defaultMetricsPath = "/metrics"
+    metricNamePrefix = "lvm_"
+)
 
 
 
@@ -34,6 +40,9 @@ var (
 
 
 type LvmExporter struct {
+    pvs     []map[string]string
+    vgs     []map[string]string
+    lvs     []map[string]string
 }
 
 
@@ -45,11 +54,18 @@ func NewLvmExporter() (*LvmExporter, error) {
 
 
 func (e *LvmExporter) Describe(ch chan<- *prometheus.Desc) {
+    ch <- pvSizeMetric
+    ch <- pvFreeMetric
+    ch <- pvUsedMetric
+    ch <- vgSizeMetric
+    ch <- vgFreeMetric
+    ch <- lvSizeMetric
 }
 
 
 
 func (e *LvmExporter) Collect(ch chan<- prometheus.Metric) {
+    // Get the names of the VGs first, then get full reports for each VG
     var vgNames []string
     var vgs map[string][]map[string][]map[string]string
     vgs_json, err := exec.Command("/usr/sbin/vgs", "--verbose", "--units", "b", "--reportformat", "json").Output()
@@ -88,6 +104,7 @@ func (e *LvmExporter) Collect(ch chan<- prometheus.Metric) {
 
 
 
+// Collects metrics from PVs
 func pvCollect(ch chan<- prometheus.Metric, pvs []map[string]string, vgName string) {
     for _, pv := range  pvs {
         pvSizeF, err := strconv.ParseFloat(strings.Trim(pv["pv_size"], "B"), 64)
@@ -115,6 +132,7 @@ func pvCollect(ch chan<- prometheus.Metric, pvs []map[string]string, vgName stri
 
 
 
+// Collects metrics from VGs
 func vgCollect(ch chan<- prometheus.Metric, vgs []map[string]string) {
     for _, vg := range  vgs {
         vgSizeF, err := strconv.ParseFloat(strings.Trim(vg["vg_size"], "B"), 64)
@@ -135,6 +153,7 @@ func vgCollect(ch chan<- prometheus.Metric, vgs []map[string]string) {
 
 
 
+// Collects metrics from LVs
 func lvCollect(ch chan<- prometheus.Metric, lvs []map[string]string, vgName string) {
     for _, lv := range  lvs {
         lvSizeF, err := strconv.ParseFloat(strings.Trim(lv["lv_size"], "B"), 64)
@@ -148,11 +167,23 @@ func lvCollect(ch chan<- prometheus.Metric, lvs []map[string]string, vgName stri
 
 
 
+func init() {
+    log.SetFlags(log.Ldate|log.Ltime|log.Lshortfile)
+}
+
+
+
 func main() {
     listenAddress := flag.String("web.listen-address", defaultListenAddress, "Listen address for HTTP requests")
-    //debug := flag.Int("debug", 0, "Debug level. 0=none 1=debug 2=trace")
+    metricsPath := flag.String("web.telemetry-path", defaultMetricsPath, "Path under which to expose metrics")
+    showVersion := flag.Bool("version", false, "Show version and exit")
     flag.Parse()
-    log.Printf("Listening on %s", *listenAddress)
+
+    if *showVersion {
+        fmt.Printf("%s v%s\n", swName, swVersion)
+        os.Exit(0)
+    }
+
 
     exporter, err := NewLvmExporter()
     if err != nil {
@@ -160,6 +191,7 @@ func main() {
     }
     prometheus.MustRegister(exporter)
 
-    http.Handle("/metrics", promhttp.Handler())
+    http.Handle(*metricsPath, promhttp.Handler())
+    log.Printf("Listening on %s", *listenAddress)
     http.ListenAndServe(*listenAddress, nil)
 }
