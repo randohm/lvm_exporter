@@ -16,3 +16,4 @@
 
 .sw*
 .*.sw*
+lvm_exporter
