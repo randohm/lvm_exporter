@@ -4,6 +4,13 @@
 Currently calls `pvs`, `vgs`, and `lvs` to get data and exposes them as a Prometheus exporter.
 Future plans include making direct calls to the `liblvm`.
 
+## Usage
+
+```
+  -web.listen-address string
+        Listen address for HTTP requests (default "0.0.0.0:9777")
+```
+
 ## Metrics
 
 Currently only gets metrics for volume size and use.
